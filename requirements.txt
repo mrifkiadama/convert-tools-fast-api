@@ -18,3 +18,8 @@ xlsxwriter
 openpyxl
 openai
 google-generativeai
+camelot-py[cv]
+numpy
+pandas
+tabula
+ghostscript
