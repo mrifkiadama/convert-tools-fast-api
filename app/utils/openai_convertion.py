@@ -4,18 +4,14 @@ import openai
 import time
 import os
 import pdfplumber
-from openpyxl import Workbook
+import base64
 import google.generativeai as genai
 
-async def csv_convert(pdf_stream: io.BytesIO, type_bank: str) -> io.BytesIO:
+async def process_convert(pdf_stream: io.BytesIO, export_type: str) -> io.BytesIO:
     text = extract_text_from_pdf(pdf_stream)
-    if os.getenv("CURRENT_AI") == "openai":
-        # Use OpenAI API
-        result = await convert_to_openai(text)  
-    else:
-        # Use Gemini API
-        result = await convert_to_gemini(text)
-
+    
+    result = await convert_to_openai(text)  
+   
     return result
 
 
@@ -40,7 +36,6 @@ def extract_text_from_pdf(pdf_stream):
             else:
                 print(f"⚠️  Warning: No extractable text/tables found on page {i+1}")
 
-
      return full_text
 
 
@@ -50,18 +45,20 @@ def truncate_input(text, limit=12000):
 def convert_to_openai(text):
     # Use OpenAI API
     system_prompt = (
-        "You are a financial assistant. Extract all bank transactions from the input text and format them as a table. "
-        "Columns: Tanggal Transaksi, Keterangan Utama, Keterangan Tambahan, Uang Masuk IDR, Uang Keluar IDR, Saldo. "
-        "Return only CSV format without explanation."
+        "You are a financial assistant. Extract all bank transactions from the uploaded PDF bank statement. "
+        "Format the data into a table with the following columns (in this exact order): Tanggal Transaksi, Keterangan Utama, Keterangan Tambahan, Uang Masuk (IDR), Uang Keluar (IDR), Saldo. "
+        "Clean and format the currency values: Remove any commas, Ensure values are numeric, Leave blank or 0 where applicable. "
+        "Apply formatting in the Excel file: Bold headers, Format numeric columns as IDR currency (no comma separator). "
+        "Return only the Excel file with a download link. "
     )
-    user_prompt = f"Here is the text from the bank statement PDF:\n\n{truncate_input(text)}\n\nExtract and format as CSV table."
+    user_prompt = f"Here is the file from the bank statement PDF:\n\n{truncate_input(text)}\n\nExtract and format as CSV and excel table. and i can to downlod this file "
 
     start_time = time.time()
-    
+
     openai.api_key = os.getenv("OPENAI_API_KEY")
-    
+
     response = openai.ChatCompletion.create(
-        model="gpt-4-turbo",
+        model=os.getenv("OPENAI_MODEL"),
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -69,32 +66,37 @@ def convert_to_openai(text):
         temperature=0.2,
         max_tokens=1000,
         top_p=1,
-        frequency_penalty=0,
-        presence_penalty=0,
-        stop=["\n\n"]
+        frequency_penalty=0
+       
+        # temperature=0.2,
+        # max_tokens=1000,
+        # top_p=1,
+        # frequency_penalty=0,
+        # presence_penalty=0,0
+        # stop=["\n\n"]
     )
-    
+
     elapsed = time.time() - start_time
     usage = response.get("usage", {})
     prompt_tokens = usage.get("prompt_tokens", 0)
     completion_tokens = usage.get("completion_tokens", 0)
     total_tokens = usage.get("total_tokens", 0)
     cost = (prompt_tokens / 1000 * 0.01) + (completion_tokens / 1000 * 0.03)
-    
+
     print(f"🕒 GPT processing time: {elapsed:.2f} seconds")
     print(f"📊 Token usage: prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}")
     print(f"💵 Estimated cost: ${cost:.4f}")
-    
-    return response['choices'][0]['message']['content']
 
+    print(f"📝 Response: {response}")   
+    return response
+    # return response['choices'][0]['message']['content']
 
-def convert_to_gemini(text):
     # Use Gemini API
     geminiApiKey = os.getenv("GEMINI_API_KEY")
     genai.configure(api_key=geminiApiKey)    
-    
+
     start_time = time.time()
-    
+
     response = genai.generate(
         model="gpt-4",
         prompt=f"Here is the text from the bank statement PDF:\n\n{truncate_input(text)}\n\nExtract and format as CSV table.",
@@ -105,16 +107,16 @@ def convert_to_gemini(text):
         presence_penalty=0,
         stop=["\n\n"]
     )
-    
+
     elapsed = time.time() - start_time
     usage = response.get("usage", {})
     prompt_tokens = usage.get("prompt_tokens", 0)
     completion_tokens = usage.get("completion_tokens", 0)
     total_tokens = usage.get("total_tokens", 0)
     cost = (prompt_tokens / 1000 * 0.01) + (completion_tokens / 1000 * 0.03)
-    
+
     print(f"🕒 GPT processing time: {elapsed:.2f} seconds")
     print(f"📊 Token usage: prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}")
     print(f"💵 Estimated cost: ${cost:.4f}")    
-    
+
     return response['generated_text']

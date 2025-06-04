@@ -9,7 +9,9 @@ import app.utils.bca_convert as bca_convert
 import secrets
 from datetime import datetime
 from fastapi.responses import StreamingResponse
-
+from app.utils import openai_convertion as openai_convert
+from app.utils import gemini_convertion as gemini_convert
+import app.utils.mandiri_convert as mandiri_convert
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
@@ -17,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 class BankType(str, Enum):
     bca = "bca"
-    bni = "bni"
     mandiri = "mandiri"
-    bri = "bri"
+    # bni = "bni"
+    # bri = "bri"
 
 
 class ExportType(str, Enum):
@@ -108,7 +110,7 @@ async def convert_file(
                     raise HTTPException(status_code=500, detail=str(e))
             elif bank_type == "mandiri":
                 try:
-                    print("mandiri")
+                    output = await mandiri_convert.extract_mandiri_transactions(pdf_stream, export_type)
                 except Exception as e:
                     raise HTTPException(status_code=500, detail=str(e))
             else:
@@ -122,9 +124,11 @@ async def convert_file(
                 headers={"Content-Disposition": f"attachment; filename={filename}"},
             )
         elif conversion_type == "openai":
-            print("openai")
+            output = await openai_convert.process_convert(pdf_stream, export_type)
+            return output
         elif conversion_type == "gemini":
-            print("gemini")
+            output = await gemini_convert.process_convert(pdf_stream, export_type)
+            return output
         else:
             raise HTTPException(
                 status_code=400,
@@ -132,3 +136,4 @@ async def convert_file(
             )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
