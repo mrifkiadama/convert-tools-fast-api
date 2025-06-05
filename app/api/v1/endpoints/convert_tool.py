@@ -5,28 +5,35 @@ import logging
 import PyPDF2
 from io import BytesIO
 import os
-import app.utils.csv_convert as csv
-import app.utils.excel_convert as convert_to_excel
+import app.utils.bca_convert as bca_convert
 import secrets
 from datetime import datetime
 from fastapi.responses import StreamingResponse
-
+from app.utils import openai_convertion as openai_convert
+from app.utils import gemini_convertion as gemini_convert
+import app.utils.mandiri_convert as mandiri_convert
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
 
 class BankType(str, Enum):
-    bca = "bca"
-    bni = "bni"
     mandiri = "mandiri"
-    bri = "bri"
+    bca = "bca"
+    # bni = "bni"
+    # bri = "bri"
 
 
 class ExportType(str, Enum):
     # json = "json"
     excel = "excel"
     csv = "csv"
+
+
+class conversionType(str, Enum):
+    manual = "manual"
+    openai = "openai"    
+    gemini = "gemini"
 
 
 def get_unique_filename(bank_type: str,export_type: str):
@@ -37,12 +44,19 @@ def get_unique_filename(bank_type: str,export_type: str):
     elif export_type == "csv":
         return f"{bank_type.upper()}_e-statement_transactions_output_{timestamp}_{random_part}.csv"
 
+def get_media_type(export_type: str):
+    if export_type == "excel":
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif export_type == "csv":
+        return "text/csv"
+
 
 @router.post("/convert-pdf")
 async def convert_file(
     file: UploadFile = File(...),
     bank_type: BankType = Form(...),
     export_type: ExportType = Form(...),
+    conversion_type: conversionType = Form(...),
 ):
     contents = await file.read()
     if not contents:
@@ -83,26 +97,43 @@ async def convert_file(
         )
     pdf_stream.seek(0)
 
-    if export_type == "excel":
-        # result = await excel.excel_convert(pdf_stream, bank_type,export_type)
-        if bank_type == "bca":
-            try:
-                output = convert_to_excel.extract_bca_transactions(pdf_stream, bank_type, export_type)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+    # result = await excel.excel_convert(pdf_stream, bank_type,export_type)
+    filename = get_unique_filename(bank_type,export_type)
+    mediaType = get_media_type(export_type)
 
-            filename = get_unique_filename(bank_type,export_type)
-         
+    try:
+        if conversion_type == "manual":
+            if bank_type == "bca":
+                try:
+                    output = await bca_convert.extract_bca_transactions(pdf_stream, export_type)
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=str(e))
+            elif bank_type == "mandiri":
+                try:
+                    output = await mandiri_convert.extract_mandiri_transactions(pdf_stream, export_type)
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=str(e))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid bank type",
+                )
+            return StreamingResponse(
+                output,
+                media_type=mediaType,
+                headers={"Content-Disposition": f"attachment; filename={filename}"},
+            )
+        elif conversion_type == "openai":
+            output = await openai_convert.process_convert(pdf_stream, export_type)
+            return output
+        elif conversion_type == "gemini":
+            output = await gemini_convert.process_convert(pdf_stream, export_type)
+            return output
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid conversion type",
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        return StreamingResponse(
-            output,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
-        )
-    elif export_type == "csv":
-        result = await csv.csv_convert(pdf_stream, bank_type)
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid export type",
-        )
