@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 class BankType(str, Enum):
-    bca = "bca"
     mandiri = "mandiri"
+    bca = "bca"
     # bni = "bni"
     # bri = "bri"
 
